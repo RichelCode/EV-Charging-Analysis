@@ -1,0 +1,185 @@
+---
+title: "Final 566 Project"
+author: "Richel Attafuah"
+date: "2025-04-16"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(readr)
+library(ggplot2)
+```
+
+
+```{r Loading Data}
+df <- read_csv("C:\\Users\\attafuro\\Desktop\\EV Charging Analysis\\cleaned_traffic_data.csv",show_col_types = FALSE)
+```
+
+```{r }
+# Define selected columns to keep
+selected_columns <- c(
+  "Timestamp", "Station", "Route", "Direction of Travel",
+  "Total Flow", "Avg Speed", "% Observed", "Samples", "Lane Type"
+)
+
+# Keep only the selected columns
+df <- df %>% select(all_of(selected_columns))
+
+```
+
+```{r }
+# Assuming 'df' is already loaded
+df <- df %>%
+  # Convert Timestamp to datetime
+  mutate(Timestamp = mdy_hms(Timestamp)) %>%
+  
+  # Check and handle missing values in Total Flow and Avg Speed
+  mutate(
+    `Total Flow` = as.numeric(`Total Flow`),
+    `Avg Speed` = as.numeric(`Avg Speed`)
+  )
+
+# View the structure to confirm
+glimpse(df)
+```
+
+```{r }
+df_clean <- df %>%
+  # Ensure Timestamp is datetime
+  mutate(Timestamp = as.POSIXct(Timestamp, format = "%m/%d/%Y %H:%M:%S")) %>%
+  
+  # Remove rows with missing Total Flow
+  filter(!is.na(`Total Flow`)) %>%
+  
+  # Remove rows where % Observed is 0 (no actual data)
+  filter(`% Observed` > 0) %>%
+  
+  # Remove where Avg Speed is NA or 0
+  filter(!is.na(`Avg Speed`), `Avg Speed` > 0) %>%
+  
+  #Add useful time features
+  mutate(
+    Date = as.Date(Timestamp),
+    Hour = hour(Timestamp),
+    Weekday = wday(Timestamp, label = TRUE),
+    Month = month(Timestamp, label = TRUE)
+  )
+
+#Check the new structure
+glimpse(df_clean)
+
+```
+
+
+```{r EDA 1}
+library(ggplot2)
+
+# Define a meaningful station label dictionary (optional)
+station_names <- c(
+  "312564" = "Station A",
+  "313055" = "Station B",
+  "317143" = "Station C",
+  "3013022" = "Station D",
+  "3029111" = "Station E"
+)
+
+# Clean version of the plot
+ggplot(df_sample, aes(x = Date, y = AvgFlow, color = factor(Station))) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("#D7263D", "#1B9AAA", "#3F88C5", "#F49D37", "#140F2D"),
+                     labels = station_names) +
+  labs(
+    title = "Daily Traffic Flow Trends",
+    subtitle = "Sampled from 5 Key Stations",
+    x = NULL,
+    y = "Average Flow (vehicles/hour)",
+    color = "Station"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
+
+```{r EDA 2}
+# Recreate the heatmap dataset
+heatmap_data <- df_clean %>%
+  group_by(Weekday, Hour) %>%
+  summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop")
+
+# Factor Weekday to ensure proper order (starting Monday)
+heatmap_data$Weekday <- factor(heatmap_data$Weekday, 
+                                levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))
+
+# Improved heatmap
+ggplot(heatmap_data, aes(x = Hour, y = Weekday, fill = AvgFlow)) +
+  geom_tile(color = NA) +
+  scale_fill_viridis_c(option = "magma", direction = -1, name = "Flow") +
+  scale_x_continuous(breaks = seq(0, 23, by = 2)) +
+  labs(
+    title = "Hourly Traffic Flow Patterns",
+    subtitle = "Across Days of the Week",
+    x = "Hour of Day", y = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 14),
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right",
+    legend.title = element_text(face = "bold")
+  )
+
+```
+
+
+
+```{r EDA 3}
+ggplot(df_clean, aes(x = `Lane Type`, y = `Total Flow`, fill = `Lane Type`)) +
+  geom_boxplot(outlier.shape = NA) +
+  coord_cartesian(ylim = c(0, quantile(df_clean$`Total Flow`, 0.95, na.rm = TRUE))) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Flow Distribution by Lane Type",
+    subtitle = "Excludes extreme outliers (Top 5%)",
+    x = "Lane Type", y = "Total Flow"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(size = 14)
+  )
+
+```
+
+```{r EDA 4}
+df_clean %>%
+  group_by(`Direction of Travel`) %>%
+  summarise(AvgSpeed = mean(`Avg Speed`, na.rm = TRUE)) %>%
+  ggplot(aes(x = `Direction of Travel`, y = AvgSpeed, fill = `Direction of Travel`)) +
+  geom_col(width = 0.6) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(
+    title = "Average Speed by Travel Direction",
+    x = "Direction", y = "Speed (mph)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 18)
+  )
+
+```
