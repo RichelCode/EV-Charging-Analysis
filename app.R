@@ -7,7 +7,7 @@ library(lubridate)
 library(plotly)
 library(viridis)
 
-# Load Data (update path as needed)
+# Load Data
 df_clean <- read_csv("www/cleaned_traffic_data.csv", show_col_types = FALSE) %>%
   mutate(
     Timestamp = mdy_hms(Timestamp),
@@ -27,10 +27,12 @@ ui <- dashboardPage(
       menuItem("Welcome", tabName = "welcome", icon = icon("road")),
       menuItem("Summary", tabName = "summary", icon = icon("chart-bar")),
       menuItem("Time Trends", tabName = "trends", icon = icon("line-chart")),
-      menuItem("Heatmap", tabName = "heatmap", icon = icon("th"))
+      menuItem("Heatmap", tabName = "heatmap", icon = icon("th")),
+      menuItem("Compare Stations", tabName = "compare", icon = icon("exchange-alt")),
+      menuItem("Lane & Direction", tabName = "lanedir", icon = icon("random")),
+      menuItem("Insights", tabName = "insights", icon = icon("lightbulb"))
     ),
-    selectInput("station", "Select Station:", 
-                choices = unique(df_clean$Station), selected = unique(df_clean$Station)[1]),
+    selectizeInput("station", "Select Station:", choices = NULL, selected = NULL),
     sliderInput("date", "Select Date Range:", 
                 min = min(df_clean$Date), max = max(df_clean$Date),
                 value = c(min(df_clean$Date), max(df_clean$Date)))
@@ -39,12 +41,14 @@ ui <- dashboardPage(
   dashboardBody(
     tabItems(
       tabItem(tabName = "welcome",
-              fluidPage(
-                tags$img(src = "traffic_banner.jpg", style = "width:100%; border-radius: 10px; margin-bottom: 20px;"),
-                h2("Welcome to California District 3 Traffic Dashboard"),
-                p("This app explores congestion and traffic trends using 3 months of PeMS data."),
-                h4("Use the menu on the left to explore time trends, congestion patterns, and peak flow hours across selected stations.")
-              )
+              tags$img(
+                src = "traffic_banner.jpg",
+                style = "width:100%; border-radius: 10px; margin-bottom: 20px;",
+                alt = "Traffic Dashboard Banner"
+              ),
+              h2("Welcome to California District 3 Traffic Dashboard"),
+              p("This app explores congestion and traffic trends using 3 months of PeMS data."),
+              h4("Use the menu on the left to explore time trends, congestion patterns, and peak flow hours across selected stations.")
       ),
       
       tabItem(tabName = "summary",
@@ -56,22 +60,49 @@ ui <- dashboardPage(
       ),
       
       tabItem(tabName = "trends",
-              fluidPage(
-                plotlyOutput("lineTrend")
-              )
+              plotlyOutput("lineTrend")
       ),
       
       tabItem(tabName = "heatmap",
-              fluidPage(
-                plotOutput("heatmap")
+              plotOutput("heatmap")
+      ),
+      
+      tabItem(tabName = "compare",
+              selectizeInput("compare1", "Select First Station:", choices = NULL, selected = NULL),
+              selectizeInput("compare2", "Select Second Station:", choices = NULL, selected = NULL),
+              plotlyOutput("comparePlot")
+      ),
+      
+      tabItem(tabName = "lanedir",
+              fluidRow(
+                box(title = "Traffic Flow by Lane Type", width = 6, plotlyOutput("lanePlot")),
+                box(title = "Traffic Flow by Direction", width = 6, plotlyOutput("dirPlot"))
+              )
+      ),
+      
+      tabItem(tabName = "insights",
+              h3("Key Insights"),
+              tags$ul(
+                tags$li("Morning and evening peak hours consistently show highest traffic flow."),
+                tags$li("Main Lanes (ML) carry significantly more traffic compared to On-Ramps and Off-Ramps."),
+                tags$li("Station 312564 is the most congested station in this dataset."),
+                tags$li("Weekend traffic shows significantly lower flow compared to weekdays."),
+                tags$li("Northbound and Southbound routes experience uneven distribution in traffic load.")
               )
       )
     )
   )
 )
 
-# SERVER
-server <- function(input, output) {
+# Server
+server <- function(input, output, session) {
+  
+  observe({
+    updateSelectizeInput(session, "station", choices = unique(df_clean$Station), server = TRUE)
+    updateSelectizeInput(session, "compare1", choices = unique(df_clean$Station), server = TRUE)
+    updateSelectizeInput(session, "compare2", choices = unique(df_clean$Station), server = TRUE)
+  })
+  
   filtered_data <- reactive({
     df_clean %>%
       filter(Station == input$station,
@@ -129,6 +160,45 @@ server <- function(input, output) {
       scale_fill_viridis_c(option = "magma", name = "Flow") +
       theme_minimal() +
       labs(title = "Hourly Congestion Pattern", x = "Hour of Day", y = NULL)
+  })
+  
+  output$comparePlot <- renderPlotly({
+    data1 <- df_clean %>% filter(Station == input$compare1)
+    data2 <- df_clean %>% filter(Station == input$compare2)
+    
+    p1 <- ggplot(data1, aes(x = Date, y = `Total Flow`)) +
+      geom_line(color = "steelblue") +
+      labs(title = paste("Station", input$compare1)) +
+      theme_minimal()
+    
+    p2 <- ggplot(data2, aes(x = Date, y = `Total Flow`)) +
+      geom_line(color = "darkorange") +
+      labs(title = paste("Station", input$compare2)) +
+      theme_minimal()
+    
+    subplot(ggplotly(p1), ggplotly(p2), nrows = 2, shareX = TRUE)
+  })
+  
+  output$lanePlot <- renderPlotly({
+    lane_data <- df_clean %>%
+      group_by(`Lane Type`) %>%
+      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE))
+    
+    ggplot(lane_data, aes(x = `Lane Type`, y = AvgFlow, fill = `Lane Type`)) +
+      geom_bar(stat = "identity") +
+      labs(title = "Average Flow by Lane Type", y = "Vehicles/hour") +
+      theme_minimal()
+  })
+  
+  output$dirPlot <- renderPlotly({
+    dir_data <- df_clean %>%
+      group_by(`Direction of Travel`) %>%
+      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE))
+    
+    ggplot(dir_data, aes(x = `Direction of Travel`, y = AvgFlow, fill = `Direction of Travel`)) +
+      geom_bar(stat = "identity") +
+      labs(title = "Average Flow by Direction", y = "Vehicles/hour") +
+      theme_minimal()
   })
 }
 
