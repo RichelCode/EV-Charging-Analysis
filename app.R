@@ -30,7 +30,8 @@ ui <- dashboardPage(
       menuItem("Heatmap", tabName = "heatmap", icon = icon("th")),
       menuItem("Compare Stations", tabName = "compare", icon = icon("exchange-alt")),
       menuItem("Lane & Direction", tabName = "lanedir", icon = icon("random")),
-      menuItem("Insights", tabName = "insights", icon = icon("lightbulb"))
+      menuItem("Insights", tabName = "insights", icon = icon("lightbulb")),
+      menuItem("Ask Chatbot", tabName = "chat", icon = icon("comments"))
     ),
     selectizeInput("station", "Select Station:", choices = NULL, selected = NULL),
     sliderInput("date", "Select Date Range:", 
@@ -89,6 +90,15 @@ ui <- dashboardPage(
                 tags$li("Weekend traffic shows significantly lower flow compared to weekdays."),
                 tags$li("Northbound and Southbound routes experience uneven distribution in traffic load.")
               )
+      ),
+      
+      tabItem(tabName = "chat",
+              h3("Ask the Chatbot"),
+              p("Need help with the dashboard or traffic insights? Ask away!"),
+              textInput("user_question", "Your Question:", placeholder = "e.g., What’s the busiest station?"),
+              actionButton("ask", "Ask"),
+              br(), br(),
+              verbatimTextOutput("chat_response")
       )
     )
   )
@@ -199,6 +209,22 @@ server <- function(input, output, session) {
       geom_bar(stat = "identity") +
       labs(title = "Average Flow by Direction", y = "Vehicles/hour") +
       theme_minimal()
+  })
+  
+  # Chatbot Logic
+  observeEvent(input$ask, {
+    user_input <- tolower(input$user_question)
+    
+    response <- case_when(
+      str_detect(user_input, "peak hour") ~ "Peak hour is usually between 7–9 AM and 4–6 PM.",
+      str_detect(user_input, "busiest station") ~ "Station 312564 is the most congested station in the dataset.",
+      str_detect(user_input, "weekend") ~ "Traffic on weekends is significantly lower compared to weekdays.",
+      str_detect(user_input, "direction") ~ "Northbound and Southbound routes have uneven distribution in traffic flow.",
+      str_detect(user_input, "how to use") ~ "Use the sidebar to explore different visualizations like trends, heatmaps, and comparisons.",
+      TRUE ~ "Sorry, I’m not sure how to answer that yet. Try asking about peak hours, station trends, or lane types."
+    )
+    
+    output$chat_response <- renderText({ response })
   })
 }
 
