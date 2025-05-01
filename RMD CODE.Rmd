@@ -1,11 +1,8 @@
 ---
-title: "Traffic Dashboard for District 3"
-output: 
-  flexdashboard::flex_dashboard:
-    orientation: rows
-    vertical_layout: fill
-    theme: flatly
-runtime: shiny
+title: "RMD CODE"
+author: "Richel Attafuah"
+date: "2025-05-01"
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -239,3 +236,56 @@ leaflet(bubble_data) %>%
 
 
 
+```{r }
+df_cleaned %>%
+    group_by(`Direction of Travel`) %>%
+    summarise(avg_delay = mean(`Delay (V_t=45)`, na.rm = TRUE)) %>%
+    ggplot(aes(x = `Direction of Travel`, y = avg_delay, fill = `Direction of Travel`)) +
+    geom_bar(stat = "identity") +
+    labs(title = "Average Delay by Direction", y = "Avg Delay (mins)", x = "Direction") +
+    theme_minimal(base_size = 14)
+
+```
+
+
+```{r Final Traffic vs Delay Plot - Clean & Beautiful}
+#Flow by Hour (combine all directions into one trend)
+df_flow <- df_cleaned %>%
+  group_by(Hour) %>%
+  summarise(avg_flow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop")
+
+#Delay by Hour (overall)
+df_delay <- df_cleaned %>%
+  group_by(Hour) %>%
+  summarise(avg_delay = mean(`Delay (V_t=45)`, na.rm = TRUE), .groups = "drop")
+
+#Scale delay to match flow scale
+scaling_factor <- max(df_flow$avg_flow, na.rm = TRUE) / max(df_delay$avg_delay, na.rm = TRUE)
+df_delay <- df_delay %>%
+  mutate(scaled_delay = avg_delay * scaling_factor)
+
+#Plot
+ggplot() +
+  # Traffic Flow Line (one bold color)
+  geom_line(data = df_flow, aes(x = Hour, y = avg_flow),
+            color = "#2c3e50", linewidth = 1.8) +
+  
+  # Average Delay Overlay (bright color)
+  geom_line(data = df_delay, aes(x = Hour, y = scaled_delay),
+            color = "#FF5733", linewidth = 1.4, alpha = 0.8) +  # bright orange delay line
+  
+  annotate("text", x = 23, y = max(df_flow$avg_flow) * 0.95,
+           label = "Average Delay (scaled)", color = "#FF5733", hjust = 1, fontface = "italic", size = 3.5) +
+
+  labs(
+    title = "Hourly Average Traffic Flow and Delay",
+    subtitle = "All traffic flow trends shown in one bold line. Bright line = scaled average delay.",
+    x = "Hour of Day",
+    y = "Average Total Flow"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10)
+  )
+```
