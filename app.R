@@ -36,12 +36,8 @@ bubble_data <- df_map %>%
 ui <- fluidPage(
   titlePanel("Traffic Dashboard for District 3"),
   tabsetPanel(
-    
     tabPanel("Welcome",
-             tags$img(
-               src = "traffic_banner.jpg",
-               style = "width:100%; margin-top:20px; border-radius: 10px;"
-             ),
+             tags$img(src = "traffic_banner.jpg", style = "width:100%; margin-top:20px; border-radius: 10px;"),
              h2("Welcome to the District 3 Traffic Dashboard"),
              p("Explore congestion patterns, traffic speed, and more. Use the tabs above to navigate.")
     ),
@@ -49,18 +45,15 @@ ui <- fluidPage(
     tabPanel("Flow & Delay Trends",
              sidebarLayout(
                sidebarPanel(
-                 selectizeInput("flow_direction", "Select Direction(s):",
-                                choices = unique(df_cleaned$`Direction of Travel`),
-                                selected = unique(df_cleaned$`Direction of Travel`),
-                                multiple = TRUE),
+                 selectInput("flow_direction", "Select Direction(s):",
+                             choices = unique(df_cleaned$`Direction of Travel`),
+                             selected = unique(df_cleaned$`Direction of Travel`), multiple = TRUE),
                  sliderInput("hour_slider", "Select Hour Range:", min = 0, max = 23, value = c(0, 23)),
                  checkboxInput("show_delay_line", "Show Average Delay Line", value = TRUE),
                  colourInput("delay_color", "Delay Line Color:", value = "#FF5733"),
                  selectInput("facet_choice", "Facet By:", choices = c("None", "Weekday", "Month"), selected = "None")
                ),
-               mainPanel(
-                 plotOutput("flow_delay_plot")
-               )
+               mainPanel(plotOutput("flow_delay_plot"))
              )
     ),
     
@@ -72,24 +65,18 @@ ui <- fluidPage(
                                     choices = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
                                     selected = c("Mon", "Tue", "Wed", "Thu", "Fri"))
                ),
-               mainPanel(
-                 plotOutput("heatmapPlot")
-               )
+               mainPanel(plotOutput("heatmapPlot"))
              )
     ),
     
     tabPanel("Speed by Lane",
              sidebarLayout(
                sidebarPanel(
-                 selectizeInput("lane_choice", "Select Lane Type(s):",
-                                choices = unique(df_cleaned$`Lane Type`),
-                                selected = unique(df_cleaned$`Lane Type`),
-                                multiple = TRUE,
-                                options = list(placeholder = 'Choose lane(s)'))
+                 selectInput("lane_choice", "Select Lane Type:",
+                             choices = unique(df_cleaned$`Lane Type`),
+                             selected = unique(df_cleaned$`Lane Type`)[1])
                ),
-               mainPanel(
-                 plotOutput("boxplot")
-               )
+               mainPanel(plotOutput("boxplot"))
              )
     ),
     
@@ -98,34 +85,24 @@ ui <- fluidPage(
                sidebarPanel(
                  selectizeInput("map_stations", "Select Station(s):",
                                 choices = unique(bubble_data$Station),
-                                selected = unique(bubble_data$Station)[1:10],
-                                multiple = TRUE),
+                                selected = unique(bubble_data$Station)[1:10], multiple = TRUE),
                  sliderInput("flow_range", "Filter by Avg Flow:",
                              min = min(bubble_data$avg_flow),
                              max = max(bubble_data$avg_flow),
                              value = c(min(bubble_data$avg_flow), max(bubble_data$avg_flow)))
                ),
-               mainPanel(
-                 leafletOutput("trafficMap", height = 600)
-               )
+               mainPanel(leafletOutput("trafficMap", height = 600))
              )
     ),
     
     tabPanel("Delay by Direction",
              sidebarLayout(
                sidebarPanel(
-                 selectizeInput("direction_choice", "Select Direction(s):",
-                                choices = unique(df_cleaned$`Direction of Travel`),
-                                selected = unique(df_cleaned$`Direction of Travel`),
-                                multiple = TRUE),
-                 sliderInput("delay_range", "Delay (V_t=45) Range:",
-                             min = min(df_cleaned$`Delay (V_t=45)`),
-                             max = max(df_cleaned$`Delay (V_t=45)`),
-                             value = c(min(df_cleaned$`Delay (V_t=45)`), max(df_cleaned$`Delay (V_t=45)`)))
+                 selectInput("direction_choice", "Select Direction:",
+                             choices = unique(df_cleaned$`Direction of Travel`),
+                             selected = unique(df_cleaned$`Direction of Travel`)[1])
                ),
-               mainPanel(
-                 plotOutput("delayPlot")
-               )
+               mainPanel(plotOutput("delayPlot"))
              )
     ),
     
@@ -157,7 +134,7 @@ server <- function(input, output, session) {
     df_delay <- df_filtered %>%
       group_by(Hour) %>%
       summarise(avg_delay = mean(`Delay (V_t=45)`, na.rm = TRUE), .groups = "drop") %>%
-      mutate(scaled_delay = avg_delay * max(df_flow$avg_flow) / max(avg_delay))
+      mutate(scaled_delay = avg_delay * max(df_flow$avg_flow, na.rm = TRUE) / max(avg_delay, na.rm = TRUE))
     
     p <- ggplot() +
       geom_line(data = df_flow, aes(x = Hour, y = avg_flow, group = `Direction of Travel`),
@@ -166,7 +143,7 @@ server <- function(input, output, session) {
     if (input$show_delay_line) {
       p <- p + geom_line(data = df_delay, aes(x = Hour, y = scaled_delay),
                          color = input$delay_color, linewidth = 1.2, alpha = 0.8) +
-        annotate("text", x = 23, y = max(df_flow$avg_flow) * 0.95,
+        annotate("text", x = 23, y = max(df_flow$avg_flow, na.rm = TRUE) * 0.95,
                  label = "Avg Delay (scaled)", color = input$delay_color, hjust = 1, fontface = "italic")
     }
     
@@ -186,9 +163,24 @@ server <- function(input, output, session) {
         facet_wrap(~Month)
     }
     
-    p + labs(title = "Hourly Traffic Flow with Optional Delay Overlay",
-             x = "Hour of Day", y = "Average Total Flow") +
-      theme_minimal()
+    plot_title <- "Hourly Traffic Flow"
+    x_lab <- "Hour"
+    y_lab <- "Average Total Flow"
+    
+    if (input$facet_choice == "Weekday") {
+      plot_title <- "Hourly Traffic Flow by Weekday"
+      y_lab <- "Avg Flow per Weekday"
+    } else if (input$facet_choice == "Month") {
+      plot_title <- "Hourly Traffic Flow by Month"
+      y_lab <- "Avg Flow per Month"
+    }
+    
+    p + labs(
+      title = plot_title,
+      subtitle = if (input$show_delay_line) "Includes scaled average delay overlay" else NULL,
+      x = x_lab,
+      y = y_lab
+    ) + theme_minimal()
   })
   
   output$heatmapPlot <- renderPlot({
@@ -255,9 +247,7 @@ server <- function(input, output, session) {
   
   output$delayPlot <- renderPlot({
     filtered_delay <- df_cleaned %>%
-      filter(`Direction of Travel` %in% input$direction_choice,
-             `Delay (V_t=45)` >= input$delay_range[1],
-             `Delay (V_t=45)` <= input$delay_range[2])
+      filter(`Direction of Travel` %in% input$direction_choice)
     
     ggplot(filtered_delay, aes(x = `Direction of Travel`, y = `Delay (V_t=45)`, fill = `Direction of Travel`)) +
       geom_boxplot(outlier.shape = 21, outlier.fill = "white", outlier.color = "black") +
@@ -272,34 +262,21 @@ server <- function(input, output, session) {
     
     if (grepl("busiest hour", q)) {
       busiest <- df_cleaned %>%
-        filter(!is.na(Hour)) %>%
         group_by(Hour) %>%
         summarise(flow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop") %>%
-        arrange(desc(flow)) %>%
-        slice(1)
+        arrange(desc(flow)) %>% slice(1)
       
-      response <- if (nrow(busiest) > 0) {
-        paste("The busiest hour is", busiest$Hour, "with average flow of", round(busiest$flow))
-      } else {
-        "No valid data found for busiest hour."
-      }
-      
+      response <- paste("The busiest hour is", busiest$Hour, "with average flow of", round(busiest$flow))
     } else if (grepl("fastest lane", q)) {
       fastest <- df_cleaned %>%
         group_by(`Lane Type`) %>%
         summarise(speed = mean(`Avg Speed`, na.rm = TRUE), .groups = "drop") %>%
-        arrange(desc(speed)) %>%
-        slice(1)
+        arrange(desc(speed)) %>% slice(1)
       
       response <- paste("The fastest lane type is", fastest$`Lane Type`, "with average speed of", round(fastest$speed, 1), "mph.")
-      
     } else if (grepl("highest flow", q)) {
-      top_station <- bubble_data %>%
-        arrange(desc(avg_flow)) %>%
-        slice(1)
-      
+      top_station <- bubble_data %>% arrange(desc(avg_flow)) %>% slice(1)
       response <- paste("Station", top_station$Station, "has the highest average flow of", round(top_station$avg_flow))
-      
     } else {
       response <- "Sorry, I couldn't understand that. Try asking about 'busiest hour', 'fastest lane', or 'highest flow station'."
     }
