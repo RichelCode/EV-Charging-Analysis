@@ -1,0 +1,241 @@
+---
+title: "Traffic Dashboard for District 3"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+    theme: flatly
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r Loading Libraries}
+# Load required packages
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(leaflet)
+library(maps)
+library(shiny)
+```
+
+```{r }
+# Load Data
+df_clean <- read_csv("www/cleaned_traffic_data.csv", show_col_types = FALSE) %>%
+  mutate(
+    Timestamp = mdy_hms(Timestamp),
+    Date = as.Date(Timestamp),
+    Hour = hour(Timestamp),
+    Weekday = wday(Timestamp, label = TRUE),
+    Month = month(Timestamp, label = TRUE)
+  )
+
+head(df_clean)
+```
+
+```{r Taking a sample of my data}
+# Take a sample of 1000 rows (or any number you prefer)
+sample_data <- sample_n(df_clean, 1000)
+
+# Save 
+write_csv(sample_data, "sampled_traffic_data.csv")
+```
+
+```{r Loading Sample Data}
+traffic_data <- read_csv("sampled_traffic_data.csv",show_col_types = FALSE) 
+```
+
+```{r Selecting Relevant Columns}
+df_cleaned <- traffic_data %>%
+  select(
+    Timestamp, Date, Hour, Weekday, Month,
+    Station, District, Route,
+    `Direction of Travel`, `Lane Type`,
+    `Total Flow`, `Avg Speed`, `Delay (V_t=45)`
+  )
+```
+
+```{r Data Cleaning}
+colSums(is.na(df_cleaned))
+df_cleaned <- df_cleaned %>%
+  filter(
+    !is.na(`Total Flow`),
+    !is.na(`Avg Speed`),
+    !is.na(`Delay (V_t=45)`)
+  )
+summary(df_cleaned)
+glimpse(df_cleaned)
+
+```
+
+
+##STATIC MAPS
+
+```{r Heatmap}
+#Create full grid of Hour x Weekday
+heatmap_grid <- expand.grid(
+  Hour = 0:23,
+  Weekday = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+)
+
+#Calculate average flow per Hour and Weekday
+heatmap_summary <- df_cleaned %>%
+  group_by(Weekday, Hour) %>%
+  summarise(avg_flow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop")
+
+#Join full grid with summary to fill in missing combos
+heatmap_data <- heatmap_grid %>%
+  left_join(heatmap_summary, by = c("Weekday", "Hour"))
+
+#Set correct weekday order
+heatmap_data$Weekday <- factor(
+  heatmap_data$Weekday,
+  levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+)
+
+#Plot heatmap
+ggplot(heatmap_data, aes(x = Hour, y = Weekday, fill = avg_flow)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  scale_fill_gradient(
+    low = "lightyellow",
+    high = "darkred",
+    na.value = "gray90",  # Optional: use "white" to hide missing
+    name = "Avg Flow"
+  ) +
+  labs(
+    title = "Traffic Flow Heatmap by Hour and Day",
+    x = "Hour of Day",
+    y = "Day of Week"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text = element_text(color = "black")
+  )
+
+```
+The light gray tiles indicate that no data was recorded for that specific Hour and Day combination.
+
+
+```{r Boxplot}
+#Filter necessary columns (already clean from previous steps)
+box_data <- df_cleaned %>%
+  filter(!is.na(`Avg Speed`), !is.na(`Lane Type`))
+
+box_data$`Lane Type` <- factor(box_data$`Lane Type`)
+
+#Create the boxplot
+ggplot(box_data, aes(x = `Lane Type`, y = `Avg Speed`, fill = `Lane Type`)) +
+  geom_boxplot(outlier.shape = 21, outlier.fill = "white", outlier.color = "black") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Distribution of Average Speed by Lane Type",
+    x = "Lane Type",
+    y = "Average Speed (mph)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
+
+```
+
+```{r Merge Datasets}
+# Load station coordinates for your real Station IDs
+station_coords <- read_csv("C:\\Users\\attafuro\\Desktop\\EV Charging Analysis\\Traffic_Dashboard\\Coordinates_for_District_3_Stations.csv")  
+
+# Merge by Station ID
+df_map <- df_cleaned %>%
+  inner_join(station_coords, by = "Station")
+
+#Aggregate metrics by Station
+bubble_data <- df_map %>%
+  group_by(Station, Latitude, Longitude) %>%
+  summarise(
+    avg_flow = mean(`Total Flow`, na.rm = TRUE),
+    avg_speed = mean(`Avg Speed`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Color palette: Dark red = high speed, Light yellow = low speed
+pal <- colorNumeric(
+  palette = "YlOrRd",   # Yellow to dark red
+  domain = bubble_data$avg_speed,
+  reverse = FALSE       # Ensure deep = high, light = low
+)
+
+```
+
+
+```{r Mapp}
+# Define color palette for speed
+pal <- colorNumeric(
+  palette = "YlOrRd",      # Yellow to Red gradient
+  domain = bubble_data$avg_speed,
+  reverse = FALSE          # Deep = high speed, light = low speed
+)
+
+# Helper function to create a custom size legend
+addLegendCustom <- function(map, colors, labels, sizes, opacity = 0.5) {
+  legendContent <- mapply(function(color, label, size) {
+    paste0(
+      "<div style='display: inline-block; height: ", size * 2, "px; width: ", size * 2,
+      "px; border-radius: 50%; background-color:", color,
+      "; opacity:", opacity, "; margin-right: 5px;'></div>", label
+    )
+  }, colors, labels, sizes, SIMPLIFY = FALSE)
+
+  addControl(
+    map,
+    html = paste0("<div style='background:white;padding:10px;border-radius:5px;box-shadow:0 1px 5px rgba(0,0,0,0.3);'>
+                  <b>Avg Flow</b><br>",
+                  paste(legendContent, collapse = "<br>"),
+                  "</div>"),
+    position = "bottomleft"
+  )
+}
+
+# Define bubble size reference points
+flow_breaks <- c(1000, 2000, 3000, 4000)
+circle_sizes <- sqrt(flow_breaks) / 2.5  # Match this with radius formula below
+
+# Create the final interactive leaflet map
+leaflet(bubble_data) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addCircleMarkers(
+    lng = ~Longitude, lat = ~Latitude,
+    radius = ~sqrt(avg_flow) / 2.5,  # Bubble size scaling
+    color = ~pal(avg_speed),
+    stroke = TRUE, weight = 0.7,
+    fillOpacity = 0.85,
+    label = ~paste0(
+      "Station: ", Station, "<br>",
+      "Avg Flow: ", round(avg_flow), "<br>",
+      "Avg Speed: ", round(avg_speed, 1), " mph"
+    ),
+    labelOptions = labelOptions(direction = "auto")
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = pal,
+    values = ~avg_speed,
+    title = "Avg Speed (mph)",
+    opacity = 1
+  ) %>%
+  addLegendCustom(
+    colors = rep("black", length(flow_breaks)),
+    labels = paste(flow_breaks),
+    sizes = circle_sizes,
+    opacity = 0.7
+  )
+```
+
+
+
