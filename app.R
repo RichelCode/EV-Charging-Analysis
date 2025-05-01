@@ -1,231 +1,231 @@
-# app.R
-
 library(shiny)
-library(shinydashboard)
 library(tidyverse)
 library(lubridate)
-library(plotly)
+library(ggplot2)
+library(leaflet)
 library(viridis)
 
-# Load Data
-df_clean <- read_csv("www/cleaned_traffic_data.csv", show_col_types = FALSE) %>%
-  mutate(
-    Timestamp = mdy_hms(Timestamp),
-    Date = as.Date(Timestamp),
-    Hour = hour(Timestamp),
-    Weekday = wday(Timestamp, label = TRUE),
-    Month = month(Timestamp, label = TRUE)
+# === Load Data ===
+df_cleaned <- read_csv("www/sampled_traffic_data.csv", show_col_types = FALSE) %>%
+  select(Timestamp, Date, Hour, Weekday, Month,
+         Station, District, Route,
+         `Direction of Travel`, `Lane Type`,
+         `Total Flow`, `Avg Speed`, `Delay (V_t=45)`) %>%
+  filter(
+    !is.na(`Total Flow`),
+    !is.na(`Avg Speed`),
+    !is.na(`Delay (V_t=45)`)
   )
 
-# UI
-ui <- dashboardPage(
-  skin = "blue",
-  dashboardHeader(title = "Traffic Flow Dashboard"),
-  
-  dashboardSidebar(
-    sidebarMenu(
-      menuItem("Welcome", tabName = "welcome", icon = icon("road")),
-      menuItem("Summary", tabName = "summary", icon = icon("chart-bar")),
-      menuItem("Time Trends", tabName = "trends", icon = icon("line-chart")),
-      menuItem("Heatmap", tabName = "heatmap", icon = icon("th")),
-      menuItem("Compare Stations", tabName = "compare", icon = icon("exchange-alt")),
-      menuItem("Lane & Direction", tabName = "lanedir", icon = icon("random")),
-      menuItem("Insights", tabName = "insights", icon = icon("lightbulb")),
-      menuItem("Ask Chatbot", tabName = "chat", icon = icon("comments"))
+station_coords <- read_csv("C:\\Users\\attafuro\\Desktop\\EV Charging Analysis\\Traffic_Dashboard\\Coordinates_for_District_3_Stations.csv")
+
+df_map <- df_cleaned %>%
+  inner_join(station_coords, by = "Station")
+
+bubble_data <- df_map %>%
+  group_by(Station, Latitude, Longitude) %>%
+  summarise(
+    avg_flow = mean(`Total Flow`, na.rm = TRUE),
+    avg_speed = mean(`Avg Speed`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# === UI ===
+ui <- fluidPage(
+  titlePanel("Traffic Dashboard for District 3"),
+  tabsetPanel(
+    tabPanel("Welcome",
+             tags$img(
+               src = "traffic_banner.jpg",
+               style = "width:100%; margin-top:20px; border-radius: 10px;"
+             ),
+             h2("Welcome to the District 3 Traffic Dashboard"),
+             p("Explore congestion patterns, traffic speed, and more. Use the tabs above to navigate.")
     ),
-    selectizeInput("station", "Select Station:", choices = NULL, selected = NULL),
-    sliderInput("date", "Select Date Range:", 
-                min = min(df_clean$Date), max = max(df_clean$Date),
-                value = c(min(df_clean$Date), max(df_clean$Date)))
-  ),
-  
-  dashboardBody(
-    tabItems(
-      tabItem(tabName = "welcome",
-              tags$img(
-                src = "traffic_banner.jpg",
-                style = "width:100%; border-radius: 10px; margin-bottom: 20px;",
-                alt = "Traffic Dashboard Banner"
-              ),
-              h2("Welcome to California District 3 Traffic Dashboard"),
-              p("This app explores congestion and traffic trends using 3 months of PeMS data."),
-              h4("Use the menu on the left to explore time trends, congestion patterns, and peak flow hours across selected stations.")
-      ),
-      
-      tabItem(tabName = "summary",
-              fluidRow(
-                valueBoxOutput("totalVehicles"),
-                valueBoxOutput("peakHour"),
-                valueBoxOutput("busiestStation")
-              )
-      ),
-      
-      tabItem(tabName = "trends",
-              plotlyOutput("lineTrend")
-      ),
-      
-      tabItem(tabName = "heatmap",
-              plotOutput("heatmap")
-      ),
-      
-      tabItem(tabName = "compare",
-              selectizeInput("compare1", "Select First Station:", choices = NULL, selected = NULL),
-              selectizeInput("compare2", "Select Second Station:", choices = NULL, selected = NULL),
-              plotlyOutput("comparePlot")
-      ),
-      
-      tabItem(tabName = "lanedir",
-              fluidRow(
-                box(title = "Traffic Flow by Lane Type", width = 6, plotlyOutput("lanePlot")),
-                box(title = "Traffic Flow by Direction", width = 6, plotlyOutput("dirPlot"))
-              )
-      ),
-      
-      tabItem(tabName = "insights",
-              h3("Key Insights"),
-              tags$ul(
-                tags$li("Morning and evening peak hours consistently show highest traffic flow."),
-                tags$li("Main Lanes (ML) carry significantly more traffic compared to On-Ramps and Off-Ramps."),
-                tags$li("Station 312564 is the most congested station in this dataset."),
-                tags$li("Weekend traffic shows significantly lower flow compared to weekdays."),
-                tags$li("Northbound and Southbound routes experience uneven distribution in traffic load.")
-              )
-      ),
-      
-      tabItem(tabName = "chat",
-              h3("Ask the Chatbot"),
-              p("Need help with the dashboard or traffic insights? Ask away!"),
-              textInput("user_question", "Your Question:", placeholder = "e.g., What’s the busiest station?"),
-              actionButton("ask", "Ask"),
-              br(), br(),
-              verbatimTextOutput("chat_response")
-      )
+    
+    tabPanel("Heatmap",
+             sidebarLayout(
+               sidebarPanel(
+                 sliderInput("hour_range", "Select Hour Range:",
+                             min = 0, max = 23, value = c(6, 18)),
+                 checkboxGroupInput("selected_days", "Select Days:",
+                                    choices = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+                                    selected = c("Mon", "Tue", "Wed", "Thu", "Fri"))
+               ),
+               mainPanel(
+                 plotOutput("heatmapPlot")
+               )
+             )
+    ),
+    
+    tabPanel("Speed by Lane",
+             sidebarLayout(
+               sidebarPanel(
+                 selectizeInput("lane_choice", "Select Lane Type(s):",
+                                choices = unique(df_cleaned$`Lane Type`),
+                                selected = unique(df_cleaned$`Lane Type`),
+                                multiple = TRUE,
+                                options = list(placeholder = 'Choose lane(s)'))
+               ),
+               mainPanel(
+                 plotOutput("boxplot")
+               )
+             )
+    ),
+    
+    tabPanel("Traffic Map",
+             sidebarLayout(
+               sidebarPanel(
+                 selectInput("map_stations", "Select Station(s):",
+                             choices = unique(bubble_data$Station),
+                             selected = unique(bubble_data$Station)[1:10],
+                             multiple = TRUE),
+                 sliderInput("flow_range", "Filter by Avg Flow:",
+                             min = min(bubble_data$avg_flow),
+                             max = max(bubble_data$avg_flow),
+                             value = c(min(bubble_data$avg_flow), max(bubble_data$avg_flow)))
+               ),
+               mainPanel(
+                 leafletOutput("trafficMap", height = 600)
+               )
+             )
+    ),
+    
+    tabPanel("Chatbot",
+             tags$div(style = "background:#f8f9fa; padding:20px; border-radius:10px; max-width:600px;",
+                      h3(" Ask the Traffic Bot"),
+                      p("Try asking: 'What is the busiest hour?', 'Which station has the highest flow?', 'Which lane type is fastest?'"),
+                      textInput("question", "Your Question:", placeholder = "Type here..."),
+                      actionButton("submit", "Ask"),
+                      br(), br(),
+                      verbatimTextOutput("chat_response")
+             )
     )
   )
 )
 
-# Server
+# === Server ===
 server <- function(input, output, session) {
   
-  observe({
-    updateSelectizeInput(session, "station", choices = unique(df_clean$Station), server = TRUE)
-    updateSelectizeInput(session, "compare1", choices = unique(df_clean$Station), server = TRUE)
-    updateSelectizeInput(session, "compare2", choices = unique(df_clean$Station), server = TRUE)
-  })
-  
-  filtered_data <- reactive({
-    df_clean %>%
-      filter(Station == input$station,
-             Date >= input$date[1],
-             Date <= input$date[2])
-  })
-  
-  output$totalVehicles <- renderValueBox({
-    total <- filtered_data() %>%
-      summarise(total = sum(`Total Flow`, na.rm = TRUE)) %>%
-      pull(total)
+  # === Heatmap ===
+  output$heatmapPlot <- renderPlot({
+    req(input$hour_range, input$selected_days)
     
-    valueBox(formatC(total, format = "d", big.mark = ","), "Total Vehicles", icon = icon("car"), color = "green")
-  })
-  
-  output$peakHour <- renderValueBox({
-    peak <- filtered_data() %>%
-      group_by(Hour) %>%
-      summarise(avg = mean(`Total Flow`, na.rm = TRUE)) %>%
-      arrange(desc(avg)) %>%
-      slice(1) %>%
-      pull(Hour)
+    heatmap_filtered <- df_cleaned %>%
+      filter(Hour >= input$hour_range[1], Hour <= input$hour_range[2],
+             Weekday %in% input$selected_days)
     
-    valueBox(paste0(peak, ":00"), "Peak Hour", icon = icon("clock"), color = "yellow")
-  })
-  
-  output$busiestStation <- renderValueBox({
-    top_station <- df_clean %>%
-      group_by(Station) %>%
-      summarise(total = sum(`Total Flow`, na.rm = TRUE)) %>%
-      arrange(desc(total)) %>%
-      slice(1) %>%
-      pull(Station)
+    heatmap_grid <- expand.grid(
+      Hour = 0:23,
+      Weekday = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    )
     
-    valueBox(top_station, "Busiest Station Overall", icon = icon("map-marker-alt"), color = "red")
-  })
-  
-  output$lineTrend <- renderPlotly({
-    data <- filtered_data() %>%
-      group_by(Date) %>%
-      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE))
-    
-    plot_ly(data, x = ~Date, y = ~AvgFlow, type = 'scatter', mode = 'lines', line = list(color = 'darkblue')) %>%
-      layout(title = "Daily Average Flow", yaxis = list(title = "Vehicles/hour"))
-  })
-  
-  output$heatmap <- renderPlot({
-    data <- filtered_data() %>%
+    heatmap_summary <- heatmap_filtered %>%
       group_by(Weekday, Hour) %>%
-      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop") %>%
+      summarise(avg_flow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop")
+    
+    heatmap_data <- heatmap_grid %>%
+      left_join(heatmap_summary, by = c("Weekday", "Hour")) %>%
       mutate(Weekday = factor(Weekday, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")))
     
-    ggplot(data, aes(x = Hour, y = Weekday, fill = AvgFlow)) +
-      geom_tile(color = NA) +
-      scale_fill_viridis_c(option = "magma", name = "Flow") +
-      theme_minimal() +
-      labs(title = "Hourly Congestion Pattern", x = "Hour of Day", y = NULL)
+    ggplot(heatmap_data, aes(x = Hour, y = Weekday, fill = avg_flow)) +
+      geom_tile(color = "white", linewidth = 0.3) +
+      scale_fill_gradient(
+        low = "lightyellow",
+        high = "darkred",
+        na.value = "gray90",
+        name = "Avg Flow"
+      ) +
+      labs(
+        title = "Traffic Flow Heatmap",
+        x = "Hour of Day", y = "Day of Week"
+      ) +
+      theme_minimal(base_size = 14)
   })
   
-  output$comparePlot <- renderPlotly({
-    data1 <- df_clean %>% filter(Station == input$compare1)
-    data2 <- df_clean %>% filter(Station == input$compare2)
+  # === Boxplot ===
+  output$boxplot <- renderPlot({
+    filtered_box <- df_cleaned %>%
+      filter(`Lane Type` %in% input$lane_choice)
     
-    p1 <- ggplot(data1, aes(x = Date, y = `Total Flow`)) +
-      geom_line(color = "steelblue") +
-      labs(title = paste("Station", input$compare1)) +
-      theme_minimal()
-    
-    p2 <- ggplot(data2, aes(x = Date, y = `Total Flow`)) +
-      geom_line(color = "darkorange") +
-      labs(title = paste("Station", input$compare2)) +
-      theme_minimal()
-    
-    subplot(ggplotly(p1), ggplotly(p2), nrows = 2, shareX = TRUE)
+    ggplot(filtered_box, aes(x = `Lane Type`, y = `Avg Speed`, fill = `Lane Type`)) +
+      geom_boxplot(outlier.shape = 21, outlier.fill = "white", outlier.color = "black") +
+      scale_fill_brewer(palette = "Set2") +
+      labs(
+        title = "Distribution of Average Speed by Lane Type",
+        x = "Lane Type", y = "Average Speed (mph)"
+      ) +
+      theme_minimal(base_size = 14) +
+      theme(legend.position = "none")
   })
   
-  output$lanePlot <- renderPlotly({
-    lane_data <- df_clean %>%
-      group_by(`Lane Type`) %>%
-      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE))
+  # === Leaflet Map ===
+  output$trafficMap <- renderLeaflet({
+    filtered_bubbles <- bubble_data %>%
+      filter(Station %in% input$map_stations,
+             avg_flow >= input$flow_range[1],
+             avg_flow <= input$flow_range[2])
     
-    ggplot(lane_data, aes(x = `Lane Type`, y = AvgFlow, fill = `Lane Type`)) +
-      geom_bar(stat = "identity") +
-      labs(title = "Average Flow by Lane Type", y = "Vehicles/hour") +
-      theme_minimal()
+    pal <- colorNumeric("YlOrRd", domain = filtered_bubbles$avg_speed)
+    
+    leaflet(filtered_bubbles) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      addCircleMarkers(
+        lng = ~Longitude, lat = ~Latitude,
+        radius = ~sqrt(avg_flow)/2.5,
+        color = ~pal(avg_speed),
+        fillOpacity = 0.85,
+        label = ~paste0(
+          "Station: ", Station, "<br>",
+          "Avg Flow: ", round(avg_flow), "<br>",
+          "Avg Speed: ", round(avg_speed, 1), " mph"
+        ),
+        labelOptions = labelOptions(direction = "auto")
+      ) %>%
+      addLegend("bottomright", pal = pal, values = ~avg_speed, title = "Avg Speed (mph)")
   })
   
-  output$dirPlot <- renderPlotly({
-    dir_data <- df_clean %>%
-      group_by(`Direction of Travel`) %>%
-      summarise(AvgFlow = mean(`Total Flow`, na.rm = TRUE))
+  # === Chatbot ===
+  observeEvent(input$submit, {
+    q <- tolower(input$question)
     
-    ggplot(dir_data, aes(x = `Direction of Travel`, y = AvgFlow, fill = `Direction of Travel`)) +
-      geom_bar(stat = "identity") +
-      labs(title = "Average Flow by Direction", y = "Vehicles/hour") +
-      theme_minimal()
-  })
-  
-  # Chatbot Logic
-  observeEvent(input$ask, {
-    user_input <- tolower(input$user_question)
-    
-    response <- case_when(
-      str_detect(user_input, "peak hour") ~ "Peak hour is usually between 7–9 AM and 4–6 PM.",
-      str_detect(user_input, "busiest station") ~ "Station 312564 is the most congested station in the dataset.",
-      str_detect(user_input, "weekend") ~ "Traffic on weekends is significantly lower compared to weekdays.",
-      str_detect(user_input, "direction") ~ "Northbound and Southbound routes have uneven distribution in traffic flow.",
-      str_detect(user_input, "how to use") ~ "Use the sidebar to explore different visualizations like trends, heatmaps, and comparisons.",
-      TRUE ~ "Sorry, I’m not sure how to answer that yet. Try asking about peak hours, station trends, or lane types."
-    )
+    if (grepl("busiest hour", q)) {
+      busiest <- df_cleaned %>%
+        filter(!is.na(Hour)) %>%
+        group_by(Hour) %>%
+        summarise(flow = mean(`Total Flow`, na.rm = TRUE), .groups = "drop") %>%
+        arrange(desc(flow)) %>%
+        slice(1)
+      
+      response <- if (nrow(busiest) > 0) {
+        paste("The busiest hour is", busiest$Hour, "with average flow of", round(busiest$flow))
+      } else {
+        "No valid data found for busiest hour."
+      }
+      
+    } else if (grepl("fastest lane", q)) {
+      fastest <- df_cleaned %>%
+        group_by(`Lane Type`) %>%
+        summarise(speed = mean(`Avg Speed`, na.rm = TRUE), .groups = "drop") %>%
+        arrange(desc(speed)) %>%
+        slice(1)
+      
+      response <- paste("The fastest lane type is", fastest$`Lane Type`, "with average speed of", round(fastest$speed, 1), "mph.")
+      
+    } else if (grepl("highest flow", q)) {
+      top_station <- bubble_data %>%
+        arrange(desc(avg_flow)) %>%
+        slice(1)
+      
+      response <- paste("Station", top_station$Station, "has the highest average flow of", round(top_station$avg_flow))
+      
+    } else {
+      response <- "Sorry, I couldn't understand that. Try asking about 'busiest hour', 'fastest lane', or 'highest flow station'."
+    }
     
     output$chat_response <- renderText({ response })
   })
 }
 
+# === Run the App ===
 shinyApp(ui, server)
