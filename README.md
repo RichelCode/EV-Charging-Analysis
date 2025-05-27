@@ -1,5 +1,3 @@
-
-```markdown
 #  Traffic and EV Charging Demand Forecasting using Time Series and Deep Learning
 
 This project explores the intersection of traffic forecasting and electric vehicle (EV) charging demand using time series analysis, deep learning, and hierarchical modeling techniques. The focus is on leveraging real-world traffic data and EV usage patterns to build intelligent systems for **path planning**, **demand prediction**, and **infrastructure optimization**.
@@ -82,22 +80,6 @@ The final model will be selected based on:
 
 ---
 
-##  Repository Structure
-
-```
-
-.
-├── data/                     # Processed traffic data
-├── models/                   # Model scripts (LSTM, DCRNN, STGCN, etc.)
-├── results/                  # Evaluation plots and metrics
-├── notebooks/                # Jupyter experiments and EDA
-├── README.md
-└── requirements.txt
-
-```
-
----
-
 ##  Visualizations
 
 The repository includes:
@@ -106,15 +88,6 @@ The repository includes:
 - Clustered traffic groups (Coefficient of Variation)
 - Station-by-station forecasting error plots
 - Predicted vs actual plots for all models
-
----
-
-##  Key Readings & References
-
-- [DeepHGNN: GNN Forecasting for Hierarchical Time Series](https://arxiv.org/pdf/2405.18693)
-- [Probabilistic Forecast of EV Charging Demand](https://energyinformatics.springeropen.com/articles/10.1186/s42162-024-00319-1)
-- [Traffic Flow Forecasting with Deep Neural Networks](https://arxiv.org/pdf/1703.07015)
-- [PeMS Intro and User Guide](https://pems.dot.ca.gov/Papers/PeMS_Intro_User_Guide_v6.pdf)
 
 ---
 
